@@ -1,0 +1,125 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum MovementType {
+  ENTRADA
+  SAIDA
+  AJUSTE
+  PERDA
+  DEVOLUCAO
+}
+
+enum ProductCategory {
+  CIMENTO
+  AREIA
+  BRITA
+  TIJOLO
+  BLOCO
+  TELHA
+  CANO
+  FIO
+  TINTA
+  FERRAMENTA
+  EPI
+  HIDRAULICA
+  ELETRICA
+  MADEIRA
+  METAL
+  IMPERMEABILIZANTE
+  ARGAMASSA
+  REJUNTE
+  OUTROS
+}
+
+model Product {
+  id            String        @id @default(cuid())
+  code          String        @unique // Código/SKU interno
+  barcode       String?       @unique // Código de barras
+  name          String
+  description   String?
+  category      ProductCategory
+  unit          String        // UN, KG, M, M2, M3, L, CX, PC
+  costPrice     Decimal       // Preço de custo
+  salePrice     Decimal       // Preço de venda
+  minStock      Int           @default(10)       // Estoque mínimo
+  maxStock      Int?          // Estoque máximo (opcional)
+  currentStock  Int           @default(0)
+  location      String?       // Localização no depósito (ex: "A-01", "Prateleira 3")
+  supplier      String?       // Fornecedor principal
+  ncm           String?       // Código NCM para nota fiscal
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  movements     StockMovement[]
+  alerts        StockAlert[]
+
+  @@index([category])
+  @@index([isActive])
+  @@index([currentStock])
+}
+
+model StockMovement {
+  id          String       @id @default(cuid())
+  productId   String
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type        MovementType
+  quantity    Int          // Quantidade (positiva para entrada, negativa para saída)
+  unitCost    Decimal      // Custo unitário no momento da movimentação
+  totalCost   Decimal      // Custo total
+  reference   String?      // NF, pedido, OS, etc.
+  notes       String?
+  userId      String?      // Quem fez a movimentação
+  createdAt   DateTime     @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+model StockAlert {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type        String   // "LOW_STOCK", "OUT_OF_STOCK", "OVERSTOCK"
+  message     String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  readAt      DateTime?
+
+  @@index([productId])
+  @@index([isRead])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String   // Hash
+  role      String   @default("OPERATOR") // ADMIN, MANAGER, OPERATOR
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  cnpj        String?  @unique
+  email       String?
+  phone       String?
+  address     String?
+  contactName String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

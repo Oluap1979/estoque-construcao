@@ -1,0 +1,21 @@
+{
+  "name": "EstoquePro - Controle de Estoque",
+  "short_name": "EstoquePro",
+  "description": "Sistema de controle de estoque para lojas de material de construção",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#92400e",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
