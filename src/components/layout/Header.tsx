@@ -175,7 +175,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
                 <p className="font-medium" style={{ color: 'var(--foreground)' }}>João Silva</p>
                 <p className="text-sm" style={{ color: 'var(--muted-text)' }}>operador@loja.com</p>
               </div>
-              <a href="/perfil" className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-[var(--hover-bg)]"
+              <a href="/configuracoes" className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-[var(--hover-bg)]"
                 style={{ color: 'var(--foreground)' }}>
                 <User className="w-4 h-4" />
                 Perfil

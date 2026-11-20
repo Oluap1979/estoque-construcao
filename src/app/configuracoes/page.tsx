@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { User, Bell, Shield, Database, Palette, Save, Key, Building2, Truck, Upload, Trash2, LogOut } from 'lucide-react'
+import { User, Bell, Shield, Database, Palette, Save, Key, Building2, Truck, Upload, Trash2, LogOut, Eye, EyeOff } from 'lucide-react'
 import { Layout } from '@/components/layout'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -9,11 +9,32 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
 import { useToast } from '@/components/ui/Toast'
+import { Modal } from '@/components/ui/Modal'
 
 export default function ConfiguracoesPage() {
-  const { success } = useToast()
+  const { success, error: toastError } = useToast()
   const [activeTab, setActiveTab] = useState<'geral' | 'estoque' | 'notificacoes' | 'aparencia' | 'backup'>('geral')
   const [saving, setSaving] = useState(false)
+
+  // Profile editing state
+  const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [profileData, setProfileData] = useState({
+    name: 'João Silva',
+    email: 'operador@loja.com',
+    phone: '(11) 99999-9999',
+    role: 'Operador',
+  })
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [profileSubmitting, setProfileSubmitting] = useState(false)
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
 
   const tabs = [
     { id: 'geral', label: 'Geral', icon: Building2 },
@@ -29,6 +50,80 @@ export default function ConfiguracoesPage() {
     success('Configurações salvas com sucesso!')
     setSaving(false)
   }
+
+  const handleProfileSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setProfileSubmitting(true)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    success('Perfil atualizado com sucesso!')
+    setShowProfileModal(false)
+    setProfileSubmitting(false)
+  }
+
+  const handlePasswordSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toastError('Erro', 'As senhas não coincidem')
+      return
+    }
+    if (passwordData.newPassword.length < 6) {
+      toastError('Erro', 'A nova senha deve ter pelo menos 6 caracteres')
+      return
+    }
+    setPasswordSubmitting(true)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    success('Senha alterada com sucesso!')
+    setShowPasswordModal(false)
+    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    setPasswordSubmitting(false)
+  }
+
+  const PasswordInput = ({ label, value, onChange, show, onToggleShow, error, placeholder, required, disabled }: {
+    label: string
+    value: string
+    onChange: (v: string) => void
+    show: boolean
+    onToggleShow: () => void
+    error?: string
+    placeholder?: string
+    required?: boolean
+    disabled?: boolean
+  }) => (
+    <div className="w-full">
+      <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>{label}</label>
+      <div className="relative">
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className={`
+            w-full px-3 py-2 rounded-lg border transition-colors
+            placeholder:text-gray-400 pr-10
+            focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent
+            disabled:cursor-not-allowed
+            ${error ? 'border-red-500 focus:ring-red-500' : 'hover:border-gray-400'}
+          `}
+          style={{
+            backgroundColor: 'var(--input-bg)',
+            borderColor: error ? 'var(--danger-500)' : 'var(--input-border)',
+            color: 'var(--foreground)',
+          }}
+          placeholder={placeholder}
+          required={required}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          onClick={onToggleShow}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          aria-label={show ? 'Ocultar senha' : 'Mostrar senha'}
+        >
+          {show ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+        </button>
+      </div>
+      {error && <p className="mt-1 text-sm" style={{ color: 'var(--danger-500)' }} role="alert">{error}</p>}
+    </div>
+  )
 
   return (
     <Layout>
@@ -382,17 +477,17 @@ export default function ConfiguracoesPage() {
                 <User className="w-8 h-8 text-white" />
               </div>
               <div>
-                <p className="font-semibold text-gray-900">João Silva</p>
-                <p className="text-sm text-gray-500">operador@loja.com</p>
-                <Badge variant="outline">Operador</Badge>
+                <p className="font-semibold text-gray-900">{profileData.name}</p>
+                <p className="text-sm text-gray-500">{profileData.email}</p>
+                <Badge variant="outline">{profileData.role}</Badge>
               </div>
             </div>
             <div className="flex gap-2 pt-4 border-t border-gray-200">
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => setShowProfileModal(true)}>
                 <User className="w-4 h-4" />
                 Editar Perfil
               </Button>
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => setShowPasswordModal(true)}>
                 <Key className="w-4 h-4" />
                 Alterar Senha
               </Button>
@@ -403,6 +498,62 @@ export default function ConfiguracoesPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Edit Profile Modal */}
+        <Modal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} title="Editar Perfil" size="md">
+          <form onSubmit={handleProfileSave} className="space-y-4">
+            <Input label="Nome *" value={profileData.name} onChange={e => setProfileData({ ...profileData, name: e.target.value })} placeholder="Seu nome" required />
+            <Input label="E-mail *" type="email" value={profileData.email} onChange={e => setProfileData({ ...profileData, email: e.target.value })} placeholder="seu@email.com" required />
+            <Input label="Telefone" value={profileData.phone} onChange={e => setProfileData({ ...profileData, phone: e.target.value })} placeholder="(11) 99999-9999" />
+            <Select label="Função" options={[
+              { value: 'Administrador', label: 'Administrador' },
+              { value: 'Gerente', label: 'Gerente' },
+              { value: 'Operador', label: 'Operador' },
+              { value: 'Vendedor', label: 'Vendedor' },
+            ]} value={profileData.role} onChange={e => setProfileData({ ...profileData, role: e.target.value })} />
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+              <Button type="button" variant="ghost" onClick={() => setShowProfileModal(false)}>Cancelar</Button>
+              <Button type="submit" loading={profileSubmitting}>Salvar Alterações</Button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Change Password Modal */}
+        <Modal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} title="Alterar Senha" size="md">
+          <form onSubmit={handlePasswordSave} className="space-y-4">
+            <PasswordInput
+              label="Senha Atual *"
+              value={passwordData.currentPassword}
+              onChange={v => setPasswordData({ ...passwordData, currentPassword: v })}
+              show={showCurrentPassword}
+              onToggleShow={() => setShowCurrentPassword(!showCurrentPassword)}
+              placeholder="••••••••"
+              required
+            />
+            <PasswordInput
+              label="Nova Senha *"
+              value={passwordData.newPassword}
+              onChange={v => setPasswordData({ ...passwordData, newPassword: v })}
+              show={showNewPassword}
+              onToggleShow={() => setShowNewPassword(!showNewPassword)}
+              placeholder="Mínimo 6 caracteres"
+              required
+            />
+            <PasswordInput
+              label="Confirmar Nova Senha *"
+              value={passwordData.confirmPassword}
+              onChange={v => setPasswordData({ ...passwordData, confirmPassword: v })}
+              show={showConfirmPassword}
+              onToggleShow={() => setShowConfirmPassword(!showConfirmPassword)}
+              placeholder="••••••••"
+              required
+            />
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+              <Button type="button" variant="ghost" onClick={() => setShowPasswordModal(false)}>Cancelar</Button>
+              <Button type="submit" loading={passwordSubmitting}>Alterar Senha</Button>
+            </div>
+          </form>
+        </Modal>
       </div>
     </Layout>
   )
