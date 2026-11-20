@@ -51,32 +51,30 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [products, setProducts] = useState<Product[]>([])
-  const [movements, setMovements] = useState<StockMovement[]>([])
-  const [alerts, setAlerts] = useState<StockAlert[]>([])
-  const [loading, setLoading] = useState(true)
-  const [initialized, setInitialized] = useState(false)
+  const isClient = typeof window !== 'undefined'
 
-  // Initialize once on mount
+  // Initialize synchronously on client for static generation
+  const initialProducts = isClient ? getProducts() : []
+  const initialMovements = isClient ? getMovements() : []
+  const initialAlerts = isClient ? getAlerts() : []
+  const [products, setProducts] = useState<Product[]>(initialProducts)
+  const [movements, setMovements] = useState<StockMovement[]>(initialMovements)
+  const [alerts, setAlerts] = useState<StockAlert[]>(initialAlerts)
+  const [loading, setLoading] = useState(false)
+  const [initialized, setInitialized] = useState(isClient)
+
+  // Initialize store on mount (for seeding if needed)
   useEffect(() => {
-    let mounted = true
-    const init = () => {
-      try {
-        initializeStore()
-        if (mounted) {
-          setProducts(getProducts())
-          setMovements(getMovements())
-          setAlerts(getAlerts())
-          setInitialized(true)
-        }
-      } catch (e) {
-        console.error('Store init error:', e)
-      } finally {
-        if (mounted) setLoading(false)
-      }
+    if (!isClient) return
+    try {
+      initializeStore()
+      setProducts(getProducts())
+      setMovements(getMovements())
+      setAlerts(getAlerts())
+      setInitialized(true)
+    } catch (e) {
+      console.error('Store init error:', e)
     }
-    init()
-    return () => { mounted = false }
   }, [])
 
   // Refresh functions
