@@ -131,7 +131,10 @@ export default function RelatoriosPage() {
 
   const handleExport = (type: 'csv' | 'pdf') => success(`Exportação ${type.toUpperCase()} em desenvolvimento`)
 
-  if (loading || !initialized)
+  // Only show loading spinner on client when actually loading
+  // During static generation (server), initialized=false but we should render empty state
+  const isClient = typeof window !== 'undefined'
+  if (isClient && loading)
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">
@@ -139,21 +142,23 @@ export default function RelatoriosPage() {
         </div>
       </Layout>
     )
-  if (!data)
-    return (
-      <Layout>
-        <div className="text-center py-12">
-          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Erro ao carregar relatórios</h2>
-          <Button onClick={() => window.location.reload()}>Tentar novamente</Button>
-        </div>
-      </Layout>
-    )
 
-  const { stats, movementsByType, topProducts, movementsByDay } = data
-  const totalEntradas = movementsByType.find((m) => m.type === 'ENTRADA')?._sum.quantity || 0
-  const totalSaidas = Math.abs(movementsByType.find((m) => m.type === 'SAIDA')?._sum.quantity || 0)
-  const totalAjustes = movementsByType.find((m) => m.type === 'AJUSTE')?._sum.quantity || 0
+  // Default empty data for static generation
+  const stats = data?.stats ?? {
+    totalProducts: 0,
+    activeProducts: 0,
+    lowStockProducts: 0,
+    outOfStockProducts: 0,
+    totalStockValue: 0,
+    totalStockCost: 0,
+  }
+  const movementsByType = data?.movementsByType ?? []
+  const topProducts = data?.topProducts ?? []
+  const movementsByDay = data?.movementsByDay ?? []
+
+  const totalEntradas = movementsByType.find((m: MovementByType) => m.type === 'ENTRADA')?._sum.quantity || 0
+  const totalSaidas = Math.abs(movementsByType.find((m: MovementByType) => m.type === 'SAIDA')?._sum.quantity || 0)
+  const totalAjustes = movementsByType.find((m: MovementByType) => m.type === 'AJUSTE')?._sum.quantity || 0
 
   const chartData = useMemo((): ChartDay[] => {
     const acc: Record<string, ChartDay> = {}

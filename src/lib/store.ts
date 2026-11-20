@@ -376,15 +376,12 @@ export function createMovement(
     createdAt: nowISO(),
   }
 
-  // Atualiza estoque do produto
-  updateProduct(data.productId, { currentStock: newStock })
+  // Atualiza estoque do produto (já chama checkAndCreateAlerts internamente)
+  const updatedProduct = updateProduct(data.productId, { currentStock: newStock })
 
   // Salva movimentação
   const movements = getMovements()
   write(STORAGE_KEYS.movements, [movement, ...movements])
-
-  // Alertas
-  checkAndCreateAlerts({ ...product, currentStock: newStock }, product)
 
   return movement
 }

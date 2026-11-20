@@ -54,7 +54,8 @@ export default function DashboardPage() {
     }
   }, [getDashboardStats, loading])
 
-  if (loading) {
+  const isClient = typeof window !== 'undefined'
+  if (isClient && loading) {
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">

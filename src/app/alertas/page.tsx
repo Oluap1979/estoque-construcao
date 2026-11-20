@@ -62,7 +62,8 @@ export default function AlertasPage() {
   const unreadAlerts = displayAlerts.filter(a => !a.isRead)
   const selectedUnreadIds = unreadAlerts.map(a => a.id)
 
-  if (loading || !initialized) return <Layout><div className="p-8 text-center"><div className="animate-spin rounded-full h-8 w-8 border-4 border-amber-600 border-t-transparent mx-auto" /></div></Layout>
+  const isClient = typeof window !== 'undefined'
+  if (isClient && loading) return <Layout><div className="p-8 text-center"><div className="animate-spin rounded-full h-8 w-8 border-4 border-amber-600 border-t-transparent mx-auto" /></div></Layout>
 
   return (
     <Layout>

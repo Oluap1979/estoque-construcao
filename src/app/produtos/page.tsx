@@ -132,7 +132,8 @@ export default function ProdutosPage() {
     { key: 'actions', header: 'Ações', render: (row: Product) => <div className="flex items-center gap-1"><Button variant="ghost" size="sm" onClick={() => openEditModal(row)} aria-label={`Editar ${row.name}`}><Edit className="w-4 h-4" /></Button>{!row.isActive && <Badge variant="outline" className="text-xs">Inativo</Badge>}</div> },
   ], [])
 
-  if (loading || !initialized) return <Layout><div className="p-8 text-center"><div className="animate-spin rounded-full h-8 w-8 border-4 border-amber-600 border-t-transparent mx-auto" /></div></Layout>
+  const isClient = typeof window !== 'undefined'
+  if (isClient && loading) return <Layout><div className="p-8 text-center"><div className="animate-spin rounded-full h-8 w-8 border-4 border-amber-600 border-t-transparent mx-auto" /></div></Layout>
 
   return (
     <Layout>
