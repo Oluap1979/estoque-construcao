@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { StoreProvider } from '@/lib/StoreContext'
+import { ToastProvider } from '@/components/ui/Toast'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -36,7 +38,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body className="min-h-full flex flex-col font-sans text-gray-900 bg-gray-50">
-        {children}
+        <StoreProvider>
+          <ToastProvider>
+            {children}
+          </ToastProvider>
+        </StoreProvider>
       </body>
     </html>
   )

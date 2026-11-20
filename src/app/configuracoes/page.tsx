@@ -1,7 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useState } from 'react'
 import { User, Bell, Shield, Database, Palette, Save, Key, Building2, Truck, Upload, Trash2, LogOut } from 'lucide-react'
 import { Layout } from '@/components/layout'
@@ -331,7 +329,7 @@ export default function ConfiguracoesPage() {
           <Card>
             <CardHeader>
               <CardTitle>Backup e Dados</CardTitle>
-              <CardDescription>Gerencie backups e exportação de dados</CardDescription>
+              <CardDescription>Gerencie backups e exportação de dados (localStorage)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -357,14 +355,14 @@ export default function ConfiguracoesPage() {
                 </Button>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <h4 className="font-medium text-gray-900 mb-2">Informações do Banco de Dados</h4>
+                <h4 className="font-medium text-gray-900 mb-2">Informações do Armazenamento</h4>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="text-gray-500">Tipo</dt>
-                  <dd className="font-medium">SQLite</dd>
-                  <dt className="text-gray-500">Arquivo</dt>
-                  <dd className="font-medium font-mono">dev.db</dd>
-                  <dt className="text-gray-500">Localização</dt>
-                  <dd className="font-medium font-mono">./prisma/dev.db</dd>
+                  <dd className="font-medium">localStorage (navegador)</dd>
+                  <dt className="text-gray-500">Chaves</dt>
+                  <dd className="font-medium font-mono">estoque_*</dd>
+                  <dt className="text-gray-500">Persistência</dt>
+                  <dd className="font-medium">Por navegador/dispositivo</dd>
                   <dt className="text-gray-500">Último Backup</dt>
                   <dd className="font-medium text-amber-600">Nunca</dd>
                 </dl>

@@ -7,12 +7,12 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/com
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
-import { Table } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/Toast'
-import { formatCurrency, formatNumber, formatShortDate, getCategoryLabel, getStockStatus, CATEGORIES } from '@/lib/utils'
-import { getDashboardStats, getMovementsByPeriod, getTopProducts, initializeStore } from '@/lib/store'
+import { formatCurrency, formatNumber, formatShortDate, getCategoryLabel, CATEGORIES } from '@/lib/utils'
+import { useStore } from '@/lib/StoreContext'
+import { StockMovement } from '@/lib/store'
 
-interface DashboardData {
+interface DashboardStats {
   stats: {
     totalProducts: number
     activeProducts: number
@@ -23,131 +23,115 @@ interface DashboardData {
   }
   recentMovements: Array<{
     id: string
+    productId: string
     type: string
     quantity: number
     unitCost: number
     totalCost: number
     reference: string | null
     notes: string | null
+    userId: string | null
     createdAt: string
-    product?: { id: string; code: string; name: string; unit: string }
-  }>
-  movementsByType: Array<{
-    type: string
-    _count: { id: number }
-    _sum: { quantity: number | null; totalCost: number | null }
-  }>
-  movementsByDay: Array<{
-    day: string
-    type: string
-    count: number
-    total_quantity: number
-    total_cost: number
-  }>
-  topCategories: Array<{
-    category: string
-    _sum: { currentStock: number | null }
-    _count: { id: number }
-  }>
-  topProducts: Array<{
-    productId: string
-    _count: { id: number }
-    _sum: { quantity: number | null }
-    product?: { id: string; code: string; name: string; unit: string }
+    product: { id: string; code: string; name: string; unit: string } | undefined
   }>
   recentAlerts: Array<{
     id: string
+    productId: string
     type: string
     message: string
+    isRead: boolean
     createdAt: string
-    product?: { id: string; code: string; name: string; currentStock: number; minStock: number }
+    readAt: string | null
+    product: { id: string; code: string; name: string; unit: string; currentStock: number; minStock: number } | undefined
   }>
 }
 
+interface MovementByType {
+  type: string
+  _count: { id: number }
+  _sum: { quantity: number; totalCost: number }
+}
+
+interface MovementByDay {
+  day: string
+  type: string
+  total_quantity: number
+  total_cost: number
+}
+
+interface TopProductItem {
+  productId: string
+  count: number
+  totalQty: number
+  product: { id: string; code: string; name: string; unit: string } | undefined
+}
+
+interface ChartDay {
+  day: string
+  entradas: number
+  saidas: number
+  ajustes: number
+  valor: number
+}
+
 export default function RelatoriosPage() {
+  const { getDashboardStats, getMovementsByPeriod, getTopProducts, loading, initialized } = useStore()
   const { success, error: toastError } = useToast()
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<'7' | '30' | '90' | '365'>('30')
+  const [data, setData] = useState<DashboardStats & { movementsByType: MovementByType[]; movementsByDay: MovementByDay[]; topProducts: TopProductItem[] } | null>(null)
 
   const periodDays = useMemo(() => parseInt(period), [period])
 
   useEffect(() => {
-    try {
-      initializeStore()
-      const stats = getDashboardStats()
-      const days = periodDays
+    if (!loading && initialized) {
+      try {
+        const stats = getDashboardStats()
+        const movements = getMovementsByPeriod(periodDays)
 
-      // Buscar movimentações do período para relatórios
-      const movements = getMovementsByPeriod(days)
+        // Agrupar por tipo
+        const typeMap = new Map<string, { count: number; totalQty: number; totalCost: number }>()
+        movements.forEach((m: StockMovement) => {
+          const e = typeMap.get(m.type) || { count: 0, totalQty: 0, totalCost: 0 }
+          e.count++
+          e.totalQty += Math.abs(m.quantity)
+          e.totalCost += m.totalCost
+          typeMap.set(m.type, e)
+        })
+        const movementsByType: MovementByType[] = Array.from(typeMap.entries()).map(([type, d]) => ({
+          type,
+          _count: { id: d.count },
+          _sum: { quantity: d.totalQty, totalCost: d.totalCost },
+        }))
 
-      // Agrupar por tipo
-      const movementsByTypeMap = new Map<string, { count: number; totalQty: number; totalCost: number }>()
-      movements.forEach((m) => {
-        const existing = movementsByTypeMap.get(m.type) || { count: 0, totalQty: 0, totalCost: 0 }
-        existing.count += 1
-        existing.totalQty += Math.abs(m.quantity)
-        existing.totalCost += m.totalCost
-        movementsByTypeMap.set(m.type, existing)
-      })
+        // Agrupar por dia
+        const dailyMap = new Map<string, { day: string; entradas: number; saidas: number; ajustes: number; valor: number }>()
+        movements.forEach((m: StockMovement) => {
+          const day = m.createdAt.split('T')[0]
+          if (!dailyMap.has(day)) dailyMap.set(day, { day, entradas: 0, saidas: 0, ajustes: 0, valor: 0 })
+          const d = dailyMap.get(day)!
+          if (m.type === 'ENTRADA' || m.type === 'DEVOLUCAO') d.entradas += Math.abs(m.quantity)
+          if (m.type === 'SAIDA' || m.type === 'PERDA') d.saidas += Math.abs(m.quantity)
+          if (m.type === 'AJUSTE') d.ajustes += m.quantity
+          d.valor += m.totalCost
+        })
+        const movementsByDay: MovementByDay[] = Array.from(dailyMap.values()).map((d) => ({
+          day: d.day,
+          type: 'ALL',
+          count: 1,
+          total_quantity: d.entradas - d.saidas + d.ajustes,
+          total_cost: d.valor,
+        }))
 
-      const movementsByType = Array.from(movementsByTypeMap.entries()).map(([type, data]) => ({
-        type,
-        _count: { id: data.count },
-        _sum: { quantity: data.totalQty, totalCost: data.totalCost },
-      }))
-
-      // Agrupar por dia
-      const dailyMap = new Map<string, { day: string; entradas: number; saidas: number; ajustes: number; valor: number }>()
-      movements.forEach((m) => {
-        const day = m.createdAt.split('T')[0]
-        if (!dailyMap.has(day)) dailyMap.set(day, { day, entradas: 0, saidas: 0, ajustes: 0, valor: 0 })
-        const d = dailyMap.get(day)!
-        if (m.type === 'ENTRADA' || m.type === 'DEVOLUCAO') d.entradas += Math.abs(m.quantity)
-        if (m.type === 'SAIDA' || m.type === 'PERDA') d.saidas += Math.abs(m.quantity)
-        if (m.type === 'AJUSTE') d.ajustes += m.quantity
-        d.valor += m.totalCost
-      })
-
-      const movementsByDay = Array.from(dailyMap.values()).map((d) => ({
-        day: d.day,
-        type: 'ALL',
-        count: 1,
-        total_quantity: d.entradas - d.saidas + d.ajustes,
-        total_cost: d.valor,
-      }))
-
-      // Top categorias - simplificado usando getProducts
-      const topCategories: Array<{ category: string; _sum: { currentStock: number | null }; _count: { id: number } }> = []
-      const topProducts = getTopProducts(days, 5).map((item) => ({
-        productId: item.productId,
-        _count: { id: item.count },
-        _sum: { quantity: item.totalQty },
-        product: item.product,
-      }))
-
-      setData({
-        stats: stats.stats,
-        recentMovements: stats.recentMovements,
-        movementsByType,
-        movementsByDay,
-        topCategories,
-        topProducts,
-        recentAlerts: stats.recentAlerts,
-      })
-    } catch (err) {
-      toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar relatórios')
-    } finally {
-      setLoading(false)
+        setData({ ...stats, movementsByType, movementsByDay, topProducts: getTopProducts(periodDays, 5) })
+      } catch (err) {
+        toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar relatórios')
+      }
     }
-  }, [periodDays, toastError])
+  }, [getDashboardStats, getMovementsByPeriod, getTopProducts, periodDays, loading, initialized, toastError])
 
-  const handleExport = (type: 'csv' | 'pdf') => {
-    // TODO: Implementar exportação
-    success(`Exportação ${type.toUpperCase()} em desenvolvimento`)
-  }
+  const handleExport = (type: 'csv' | 'pdf') => success(`Exportação ${type.toUpperCase()} em desenvolvimento`)
 
-  if (loading) {
+  if (loading || !initialized)
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">
@@ -155,9 +139,7 @@ export default function RelatoriosPage() {
         </div>
       </Layout>
     )
-  }
-
-  if (!data) {
+  if (!data)
     return (
       <Layout>
         <div className="text-center py-12">
@@ -167,32 +149,28 @@ export default function RelatoriosPage() {
         </div>
       </Layout>
     )
-  }
 
-  const { stats, movementsByType, topCategories, topProducts, movementsByDay } = data
+  const { stats, movementsByType, topProducts, movementsByDay } = data
+  const totalEntradas = movementsByType.find((m) => m.type === 'ENTRADA')?._sum.quantity || 0
+  const totalSaidas = Math.abs(movementsByType.find((m) => m.type === 'SAIDA')?._sum.quantity || 0)
+  const totalAjustes = movementsByType.find((m) => m.type === 'AJUSTE')?._sum.quantity || 0
 
-  // Calcular totais por tipo
-  const totalEntradas = movementsByType.find(m => m.type === 'ENTRADA')?._sum.quantity || 0
-  const totalSaidas = Math.abs(movementsByType.find(m => m.type === 'SAIDA')?._sum.quantity || 0)
-  const totalAjustes = movementsByType.find(m => m.type === 'AJUSTE')?._sum.quantity || 0
-
-  // Agrupar dados por dia para gráfico simples
-  const dailyData = movementsByDay.reduce((acc, item) => {
-    const day = item.day
-    if (!acc[day]) acc[day] = { day, entradas: 0, saidas: 0, ajustes: 0, valor: 0 }
-    if (item.type === 'ENTRADA') acc[day].entradas += item.total_quantity
-    if (item.type === 'SAIDA') acc[day].saidas += Math.abs(item.total_quantity)
-    if (item.type === 'AJUSTE') acc[day].ajustes += item.total_quantity
-    acc[day].valor += item.total_cost
-    return acc
-  }, {} as Record<string, { day: string; entradas: number; saidas: number; ajustes: number; valor: number }>)
-
-  const chartData = Object.values(dailyData).slice(-14) // Últimos 14 dias
+  const chartData = useMemo((): ChartDay[] => {
+    const acc: Record<string, ChartDay> = {}
+    movementsByDay.forEach((item: MovementByDay) => {
+      const day = item.day
+      if (!acc[day]) acc[day] = { day, entradas: 0, saidas: 0, ajustes: 0, valor: 0 }
+      if (item.type === 'ENTRADA') acc[day].entradas += item.total_quantity
+      if (item.type === 'SAIDA') acc[day].saidas += Math.abs(item.total_quantity)
+      if (item.type === 'AJUSTE') acc[day].ajustes += item.total_quantity
+      acc[day].valor += item.total_cost
+    })
+    return Object.values(acc).slice(-14)
+  }, [movementsByDay])
 
   return (
     <Layout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Relatórios</h1>
@@ -223,7 +201,6 @@ export default function RelatoriosPage() {
           </div>
         </div>
 
-        {/* KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-6">
@@ -239,7 +216,6 @@ export default function RelatoriosPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -254,7 +230,6 @@ export default function RelatoriosPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -269,7 +244,6 @@ export default function RelatoriosPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -286,12 +260,11 @@ export default function RelatoriosPage() {
           </Card>
         </div>
 
-        {/* Movement Summary */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card>
             <CardHeader>
               <CardTitle>Resumo de Movimentações</CardTitle>
-              <CardDescription>Período selecionado: {period} dias</CardDescription>
+              <CardDescription>Período: {period} dias</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -302,7 +275,9 @@ export default function RelatoriosPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">Entradas</p>
-                      <p className="text-sm text-gray-500">{movementsByType.find(m => m.type === 'ENTRADA')?._count.id || 0} registros</p>
+                      <p className="text-sm text-gray-500">
+                        {movementsByType.find((m) => m.type === 'ENTRADA')?._count.id || 0} registros
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -317,7 +292,9 @@ export default function RelatoriosPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">Saídas</p>
-                      <p className="text-sm text-gray-500">{movementsByType.find(m => m.type === 'SAIDA')?._count.id || 0} registros</p>
+                      <p className="text-sm text-gray-500">
+                        {movementsByType.find((m) => m.type === 'SAIDA')?._count.id || 0} registros
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -332,7 +309,9 @@ export default function RelatoriosPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">Ajustes</p>
-                      <p className="text-sm text-gray-500">{movementsByType.find(m => m.type === 'AJUSTE')?._count.id || 0} registros</p>
+                      <p className="text-sm text-gray-500">
+                        {movementsByType.find((m) => m.type === 'AJUSTE')?._count.id || 0} registros
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -343,26 +322,6 @@ export default function RelatoriosPage() {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Top Categorias por Estoque</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {topCategories.slice(0, 5).map((cat, index) => (
-                  <div key={cat.category} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 text-center text-sm font-medium text-gray-500">{index + 1}</span>
-                      <Badge variant="outline">{getCategoryLabel(cat.category)}</Badge>
-                    </div>
-                    <span className="font-medium text-gray-900">{formatNumber(cat._sum.currentStock || 0)} un</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Produtos Mais Movimentados</CardTitle>
@@ -378,7 +337,25 @@ export default function RelatoriosPage() {
                         <p className="text-xs text-gray-500">{item.product?.code}</p>
                       </div>
                     </div>
-                    <Badge variant="outline">{item._count.id} mov.</Badge>
+                    <Badge variant="outline">{item.count} mov.</Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Top Categorias</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {CATEGORIES.filter((c) => c.value !== 'OUTROS').slice(0, 5).map((cat, index) => (
+                  <div key={cat.value} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 text-center text-sm font-medium text-gray-500">{index + 1}</span>
+                      <Badge variant="outline">{cat.label}</Badge>
+                    </div>
+                    <span className="font-medium text-gray-900">—</span>
                   </div>
                 ))}
               </div>
@@ -386,7 +363,6 @@ export default function RelatoriosPage() {
           </Card>
         </div>
 
-        {/* Simple Chart Area */}
         <Card>
           <CardHeader>
             <CardTitle>Movimentações por Dia (Últimos 14 dias)</CardTitle>
@@ -403,44 +379,45 @@ export default function RelatoriosPage() {
                       {day.entradas > 0 && (
                         <div
                           className="h-full bg-green-500 rounded-l"
-                          style={{ width: `${Math.max(2, (day.entradas / Math.max(day.entradas + day.saidas + day.ajustes, 1)) * 100)}%` }}
+                          style={{
+                            width: `${Math.max(2, (day.entradas / Math.max(day.entradas + day.saidas + day.ajustes, 1)) * 100)}%`,
+                          }}
                           title={`Entradas: ${day.entradas}`}
                         />
                       )}
                       {day.saidas > 0 && (
                         <div
                           className="h-full bg-red-500"
-                          style={{ width: `${Math.max(2, (day.saidas / Math.max(day.entradas + day.saidas + day.ajustes, 1)) * 100)}%` }}
+                          style={{
+                            width: `${Math.max(2, (day.saidas / Math.max(day.entradas + day.saidas + day.ajustes, 1)) * 100)}%`,
+                          }}
                           title={`Saídas: ${day.saidas}`}
                         />
                       )}
                       {day.ajustes !== 0 && (
                         <div
                           className="h-full bg-amber-500"
-                          style={{ width: `${Math.max(2, (Math.abs(day.ajustes) / Math.max(day.entradas + day.saidas + Math.abs(day.ajustes), 1)) * 100)}%` }}
+                          style={{
+                            width: `${Math.max(2, (Math.abs(day.ajustes) / Math.max(day.entradas + day.saidas + Math.abs(day.ajustes), 1)) * 100)}%`,
+                          }}
                           title={`Ajustes: ${day.ajustes}`}
                         />
                       )}
                     </div>
-                    <span className="w-32 text-sm text-right text-gray-600">
-                      E:{day.entradas} S:{day.saidas} A:{day.ajustes}
-                    </span>
+                    <span className="w-32 text-sm text-right text-gray-600">E:{day.entradas} S:{day.saidas} A:{day.ajustes}</span>
                   </div>
                 ))
               )}
             </div>
             <div className="mt-4 flex items-center gap-4 text-sm text-gray-500">
               <div className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded bg-green-500" />
-                Entradas
+                <span className="w-3 h-3 rounded bg-green-500" /> Entradas
               </div>
               <div className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded bg-red-500" />
-                Saídas
+                <span className="w-3 h-3 rounded bg-red-500" /> Saídas
               </div>
               <div className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded bg-amber-500" />
-                Ajustes
+                <span className="w-3 h-3 rounded bg-amber-500" /> Ajustes
               </div>
             </div>
           </CardContent>

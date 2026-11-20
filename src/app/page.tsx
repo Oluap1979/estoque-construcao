@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Package, AlertTriangle, TrendingUp, DollarSign, Box, ArrowUpRight, ArrowDownRight, Minus, Plus } from 'lucide-react'
 import { Layout } from '@/components/layout'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency, formatNumber, formatShortDate, getMovementTypeLabel, getMovementTypeColor } from '@/lib/utils'
-import { getDashboardStats, initializeStore } from '@/lib/store'
+import { useStore } from '@/lib/StoreContext'
 
 interface DashboardStats {
   totalProducts: number
@@ -27,12 +27,7 @@ interface Movement {
   reference: string | null
   notes: string | null
   createdAt: string
-  product?: {
-    id: string
-    code: string
-    name: string
-    unit: string
-  }
+  product?: { id: string; code: string; name: string; unit: string }
 }
 
 interface Alert {
@@ -40,38 +35,24 @@ interface Alert {
   type: string
   message: string
   createdAt: string
-  product?: {
-    id: string
-    code: string
-    name: string
-    unit: string
-    currentStock: number
-    minStock: number
-  }
-}
-
-interface DashboardData {
-  stats: DashboardStats
-  recentMovements: Movement[]
-  recentAlerts: Alert[]
+  product?: { id: string; code: string; name: string; unit: string; currentStock: number; minStock: number }
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { getDashboardStats, loading } = useStore()
+  const [data, setData] = useState<{ stats: DashboardStats; recentMovements: Movement[]; recentAlerts: Alert[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    initializeStore()
-    try {
-      const stats = getDashboardStats()
-      setData(stats)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido')
-    } finally {
-      setLoading(false)
+    if (!loading) {
+      try {
+        const stats = getDashboardStats()
+        setData(stats)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      }
     }
-  }, [])
+  }, [getDashboardStats, loading])
 
   if (loading) {
     return (
@@ -100,7 +81,7 @@ export default function DashboardPage() {
   const recentMovements = data?.recentMovements || []
   const recentAlerts = data?.recentAlerts || []
 
-  const statCards = [
+  const statCards = useMemo(() => [
     {
       title: 'Total de Produtos',
       value: formatNumber(stats?.totalProducts || 0),
@@ -121,7 +102,6 @@ export default function DashboardPage() {
       icon: AlertTriangle,
       color: 'bg-yellow-500',
       subtitle: 'Abaixo do mínimo',
-      variant: 'warning' as const,
     },
     {
       title: 'Sem Estoque',
@@ -129,32 +109,29 @@ export default function DashboardPage() {
       icon: Box,
       color: 'bg-red-500',
       subtitle: 'Zerados',
-      variant: 'danger' as const,
     },
-  ]
+  ], [stats])
 
   return (
     <Layout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-gray-500 mt-1">Visão geral do estoque da loja</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/produtos?new=true'}>
               <Plus className="w-4 h-4" />
               Novo Produto
             </Button>
-            <Button variant="primary" size="sm">
+            <Button variant="primary" size="sm" onClick={() => window.location.href = '/movimentacoes?new=true'}>
               <Box className="w-4 h-4" />
               Nova Movimentação
             </Button>
           </div>
         </div>
 
-        {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {statCards.map((stat, index) => (
             <Card key={index} className="hover:shadow-md transition-shadow">
@@ -174,16 +151,12 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* Recent Movements & Alerts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Movements */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Movimentações Recentes</CardTitle>
-                <a href="/movimentacoes" className="text-sm text-amber-700 hover:text-amber-800 font-medium">
-                  Ver todas
-                </a>
+                <a href="/movimentacoes" className="text-sm text-amber-700 hover:text-amber-800 font-medium">Ver todas</a>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -195,14 +168,9 @@ export default function DashboardPage() {
               ) : (
                 <div className="divide-y divide-gray-200">
                   {recentMovements.slice(0, 8).map((movement) => (
-                    <div
-                      key={movement.id}
-                      className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between gap-4"
-                    >
+                    <div key={movement.id} className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className={`p-2 rounded-lg ${getMovementTypeColor(movement.type)}`}
-                        >
+                        <div className={`p-2 rounded-lg ${getMovementTypeColor(movement.type)}`}>
                           {movement.type === 'ENTRADA' && <ArrowUpRight className="w-5 h-5" />}
                           {movement.type === 'SAIDA' && <ArrowDownRight className="w-5 h-5" />}
                           {movement.type === 'AJUSTE' && <Minus className="w-5 h-5" />}
@@ -212,8 +180,7 @@ export default function DashboardPage() {
                         <div className="min-w-0">
                           <p className="font-medium text-gray-900 truncate">{movement.product?.name || 'Produto removido'}</p>
                           <p className="text-sm text-gray-500">
-                            {getMovementTypeLabel(movement.type)} •{' '}
-                            {movement.quantity > 0 ? '+' : ''}{formatNumber(movement.quantity)} {movement.product?.unit || ''}
+                            {getMovementTypeLabel(movement.type)} • {movement.quantity > 0 ? '+' : ''}{formatNumber(movement.quantity)} {movement.product?.unit || ''}
                           </p>
                         </div>
                       </div>
@@ -228,14 +195,11 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Alerts */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Alertas de Estoque</CardTitle>
-                <a href="/alertas" className="text-sm text-amber-700 hover:text-amber-800 font-medium">
-                  Ver todos
-                </a>
+                <a href="/alertas" className="text-sm text-amber-700 hover:text-amber-800 font-medium">Ver todos</a>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -249,10 +213,7 @@ export default function DashboardPage() {
                   {recentAlerts.slice(0, 8).map((alert) => (
                     <div key={alert.id} className="p-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start gap-3">
-                        <Badge
-                          variant={alert.type === 'OUT_OF_STOCK' ? 'danger' : alert.type === 'LOW_STOCK' ? 'warning' : 'info'}
-                          className="flex-shrink-0 mt-0.5"
-                        >
+                        <Badge variant={alert.type === 'OUT_OF_STOCK' ? 'danger' : alert.type === 'LOW_STOCK' ? 'warning' : 'info'} className="flex-shrink-0 mt-0.5">
                           {alert.type === 'OUT_OF_STOCK' ? 'Sem Estoque' : alert.type === 'LOW_STOCK' ? 'Estoque Baixo' : 'Estoque Alto'}
                         </Badge>
                         <div className="flex-1 min-w-0">
@@ -262,9 +223,7 @@ export default function DashboardPage() {
                             Atual: {formatNumber(alert.product?.currentStock || 0)} {alert.product?.unit || ''} • Mín: {formatNumber(alert.product?.minStock || 0)}
                           </p>
                         </div>
-                        <span className="text-xs text-gray-400 whitespace-nowrap">
-                          {formatShortDate(alert.createdAt)}
-                        </span>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">{formatShortDate(alert.createdAt)}</span>
                       </div>
                     </div>
                   ))}
@@ -274,45 +233,14 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Quick Actions */}
         <Card>
-          <CardHeader>
-            <CardTitle>Ações Rápidas</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Ações Rápidas</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col items-center justify-center gap-2"
-                onClick={() => window.location.href = '/produtos?new=true'}
-              >
-                <Package className="w-8 h-8" />
-                <span>Cadastrar Produto</span>
-              </Button>
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col items-center justify-center gap-2"
-                onClick={() => window.location.href = '/movimentacoes?new=true'}
-              >
-                <Box className="w-8 h-8" />
-                <span>Registrar Entrada</span>
-              </Button>
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col items-center justify-center gap-2"
-                onClick={() => window.location.href = '/movimentacoes?new=true&type=SAIDA'}
-              >
-                <ArrowDownRight className="w-8 h-8" />
-                <span>Registrar Saída</span>
-              </Button>
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col items-center justify-center gap-2"
-                onClick={() => window.location.href = '/relatorios'}
-              >
-                <TrendingUp className="w-8 h-8" />
-                <span>Ver Relatórios</span>
-              </Button>
+              <Button variant="outline" className="h-24 flex flex-col items-center justify-center gap-2" onClick={() => window.location.href = '/produtos?new=true'}><Package className="w-8 h-8" /><span>Cadastrar Produto</span></Button>
+              <Button variant="outline" className="h-24 flex flex-col items-center justify-center gap-2" onClick={() => window.location.href = '/movimentacoes?new=true'}><Box className="w-8 h-8" /><span>Registrar Entrada</span></Button>
+              <Button variant="outline" className="h-24 flex flex-col items-center justify-center gap-2" onClick={() => window.location.href = '/movimentacoes?new=true&type=SAIDA'}><ArrowDownRight className="w-8 h-8" /><span>Registrar Saída</span></Button>
+              <Button variant="outline" className="h-24 flex flex-col items-center justify-center gap-2" onClick={() => window.location.href = '/relatorios'}><TrendingUp className="w-8 h-8" /><span>Ver Relatórios</span></Button>
             </div>
           </CardContent>
         </Card>
