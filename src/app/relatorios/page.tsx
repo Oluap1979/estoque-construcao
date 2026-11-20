@@ -1,8 +1,6 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Download, FileText, BarChart3, TrendingUp, Package, DollarSign, AlertTriangle, Calendar, Filter, ArrowUpRight, ArrowDownRight, RotateCcw } from 'lucide-react'
 import { Layout } from '@/components/layout'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/Card'
@@ -12,6 +10,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Table } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/Toast'
 import { formatCurrency, formatNumber, formatShortDate, getCategoryLabel, getStockStatus, CATEGORIES } from '@/lib/utils'
+import { getDashboardStats, getMovementsByPeriod, getTopProducts, initializeStore } from '@/lib/store'
 
 interface DashboardData {
   stats: {
@@ -31,7 +30,7 @@ interface DashboardData {
     reference: string | null
     notes: string | null
     createdAt: string
-    product: { id: string; code: string; name: string; unit: string }
+    product?: { id: string; code: string; name: string; unit: string }
   }>
   movementsByType: Array<{
     type: string
@@ -54,14 +53,14 @@ interface DashboardData {
     productId: string
     _count: { id: number }
     _sum: { quantity: number | null }
-    product: { id: string; code: string; name: string; unit: string } | null
+    product?: { id: string; code: string; name: string; unit: string }
   }>
   recentAlerts: Array<{
     id: string
     type: string
     message: string
     createdAt: string
-    product: { id: string; code: string; name: string; currentStock: number; minStock: number }
+    product?: { id: string; code: string; name: string; currentStock: number; minStock: number }
   }>
 }
 
@@ -71,22 +70,77 @@ export default function RelatoriosPage() {
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<'7' | '30' | '90' | '365'>('30')
 
+  const periodDays = useMemo(() => parseInt(period), [period])
+
   useEffect(() => {
-    async function fetchDashboard() {
-      setLoading(true)
-      try {
-        const res = await fetch(`/api/dashboard?days=${period}`)
-        if (!res.ok) throw new Error('Erro ao carregar relatórios')
-        const json = await res.json()
-        setData(json)
-      } catch (err) {
-        toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar relatórios')
-      } finally {
-        setLoading(false)
-      }
+    try {
+      initializeStore()
+      const stats = getDashboardStats()
+      const days = periodDays
+
+      // Buscar movimentações do período para relatórios
+      const movements = getMovementsByPeriod(days)
+
+      // Agrupar por tipo
+      const movementsByTypeMap = new Map<string, { count: number; totalQty: number; totalCost: number }>()
+      movements.forEach((m) => {
+        const existing = movementsByTypeMap.get(m.type) || { count: 0, totalQty: 0, totalCost: 0 }
+        existing.count += 1
+        existing.totalQty += Math.abs(m.quantity)
+        existing.totalCost += m.totalCost
+        movementsByTypeMap.set(m.type, existing)
+      })
+
+      const movementsByType = Array.from(movementsByTypeMap.entries()).map(([type, data]) => ({
+        type,
+        _count: { id: data.count },
+        _sum: { quantity: data.totalQty, totalCost: data.totalCost },
+      }))
+
+      // Agrupar por dia
+      const dailyMap = new Map<string, { day: string; entradas: number; saidas: number; ajustes: number; valor: number }>()
+      movements.forEach((m) => {
+        const day = m.createdAt.split('T')[0]
+        if (!dailyMap.has(day)) dailyMap.set(day, { day, entradas: 0, saidas: 0, ajustes: 0, valor: 0 })
+        const d = dailyMap.get(day)!
+        if (m.type === 'ENTRADA' || m.type === 'DEVOLUCAO') d.entradas += Math.abs(m.quantity)
+        if (m.type === 'SAIDA' || m.type === 'PERDA') d.saidas += Math.abs(m.quantity)
+        if (m.type === 'AJUSTE') d.ajustes += m.quantity
+        d.valor += m.totalCost
+      })
+
+      const movementsByDay = Array.from(dailyMap.values()).map((d) => ({
+        day: d.day,
+        type: 'ALL',
+        count: 1,
+        total_quantity: d.entradas - d.saidas + d.ajustes,
+        total_cost: d.valor,
+      }))
+
+      // Top categorias - simplificado usando getProducts
+      const topCategories: Array<{ category: string; _sum: { currentStock: number | null }; _count: { id: number } }> = []
+      const topProducts = getTopProducts(days, 5).map((item) => ({
+        productId: item.productId,
+        _count: { id: item.count },
+        _sum: { quantity: item.totalQty },
+        product: item.product,
+      }))
+
+      setData({
+        stats: stats.stats,
+        recentMovements: stats.recentMovements,
+        movementsByType,
+        movementsByDay,
+        topCategories,
+        topProducts,
+        recentAlerts: stats.recentAlerts,
+      })
+    } catch (err) {
+      toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar relatórios')
+    } finally {
+      setLoading(false)
     }
-    fetchDashboard()
-  }, [period, toastError])
+  }, [periodDays, toastError])
 
   const handleExport = (type: 'csv' | 'pdf') => {
     // TODO: Implementar exportação

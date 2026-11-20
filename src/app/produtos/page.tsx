@@ -1,8 +1,6 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, Search, Filter, Edit, Trash2, Eye, AlertTriangle, Package, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Layout } from '@/components/layout'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -15,31 +13,7 @@ import { Modal, ConfirmDialog } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { Textarea } from '@/components/ui/Textarea'
 import { formatCurrency, formatNumber, getCategoryLabel, getStockStatus, CATEGORIES, UNITS } from '@/lib/utils'
-
-interface Product {
-  id: string
-  code: string
-  barcode: string | null
-  name: string
-  description: string | null
-  category: string
-  unit: string
-  costPrice: number
-  salePrice: number
-  minStock: number
-  maxStock: number | null
-  currentStock: number
-  location: string | null
-  supplier: string | null
-  ncm: string | null
-  isActive: boolean
-  createdAt: string
-  updatedAt: string
-  _count: {
-    movements: number
-    alerts: number
-  }
-}
+import { Product, getProducts, createProduct, updateProduct, deleteProduct, initializeStore } from '@/lib/store'
 
 interface Pagination {
   page: number
@@ -70,7 +44,7 @@ export default function ProdutosPage() {
     barcode: '',
     name: '',
     description: '',
-    category: 'OUTROS',
+    category: 'OUTROS' as Product['category'],
     unit: 'UN',
     costPrice: '',
     salePrice: '',
@@ -84,23 +58,40 @@ export default function ProdutosPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(() => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        limit: pagination.limit.toString(),
-      })
-      if (search) params.set('search', search)
-      if (categoryFilter) params.set('category', categoryFilter)
-      if (activeFilter) params.set('isActive', activeFilter)
-      if (lowStockFilter) params.set('lowStock', 'true')
+      initializeStore()
+      let allProducts = getProducts()
 
-      const res = await fetch(`/api/products?${params}`)
-      if (!res.ok) throw new Error('Erro ao buscar produtos')
-      const data = await res.json()
-      setProducts(data.data)
-      setPagination(data.pagination)
+      // Filtros
+      if (search) {
+        const s = search.toLowerCase()
+        allProducts = allProducts.filter(
+          (p) =>
+            p.code.toLowerCase().includes(s) ||
+            p.name.toLowerCase().includes(s) ||
+            p.description?.toLowerCase().includes(s) ||
+            p.barcode?.toLowerCase().includes(s)
+        )
+      }
+      if (categoryFilter) {
+        allProducts = allProducts.filter((p) => p.category === categoryFilter)
+      }
+      if (activeFilter) {
+        allProducts = allProducts.filter((p) => p.isActive === (activeFilter === 'true'))
+      }
+      if (lowStockFilter) {
+        allProducts = allProducts.filter((p) => p.currentStock > 0 && p.currentStock <= p.minStock)
+      }
+
+      const total = allProducts.length
+      const totalPages = Math.ceil(total / pagination.limit)
+      const start = (pagination.page - 1) * pagination.limit
+      const paginatedProducts = allProducts.slice(start, start + pagination.limit)
+
+      setProducts(paginatedProducts)
+      setPagination((prev) => ({ ...prev, total, totalPages }))
     } catch (err) {
       toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar produtos')
     } finally {
@@ -184,28 +175,30 @@ export default function ProdutosPage() {
     setSubmitting(true)
     try {
       const payload = {
-        ...formData,
+        code: formData.code,
+        barcode: formData.barcode || null,
+        name: formData.name,
+        description: formData.description || null,
+        category: formData.category,
+        unit: formData.unit,
         costPrice: parseFloat(formData.costPrice),
         salePrice: parseFloat(formData.salePrice),
         minStock: parseInt(formData.minStock),
         maxStock: formData.maxStock ? parseInt(formData.maxStock) : null,
+        currentStock: 0,
+        location: formData.location || null,
+        supplier: formData.supplier || null,
+        ncm: formData.ncm || null,
+        isActive: formData.isActive,
       }
 
-      const url = editingProduct ? `/api/products/${editingProduct.id}` : '/api/products'
-      const method = editingProduct ? 'PUT' : 'POST'
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.error || 'Erro ao salvar produto')
+      if (editingProduct) {
+        updateProduct(editingProduct.id, payload)
+        success('Produto atualizado!')
+      } else {
+        createProduct(payload)
+        success('Produto criado!')
       }
-
-      success(editingProduct ? 'Produto atualizado!' : 'Produto criado!')
       setShowModal(false)
       fetchProducts()
     } catch (err) {
@@ -218,8 +211,7 @@ export default function ProdutosPage() {
   const handleDelete = async () => {
     if (!showDeleteConfirm) return
     try {
-      const res = await fetch(`/api/products/${showDeleteConfirm.id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Erro ao excluir produto')
+      deleteProduct(showDeleteConfirm.id)
       success('Produto desativado!')
       setShowDeleteConfirm(null)
       fetchProducts()
@@ -478,7 +470,7 @@ export default function ProdutosPage() {
               label="Categoria *"
               options={CATEGORIES}
               value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value as Product['category'] })}
               error={formErrors.category}
               required
             />

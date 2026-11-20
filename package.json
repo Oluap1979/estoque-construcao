@@ -4,22 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
-    "@libsql/client": "^0.18.0",
-    "@prisma/adapter-libsql": "^7.10.1",
-    "@prisma/client": "^7.10.1",
     "lucide-react": "^1.77.0",
     "next": "16.4.6",
-    "prisma": "8.0.0-rc.34",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@prisma/prisma7": "^7.10.1",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",

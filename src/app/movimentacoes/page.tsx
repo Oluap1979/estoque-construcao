@@ -1,8 +1,6 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, Search, Filter, ChevronLeft, ChevronRight, Box, ArrowUpRight, ArrowDownRight, Minus, AlertTriangle, RotateCcw, Package } from 'lucide-react'
 import { Layout } from '@/components/layout'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -15,30 +13,7 @@ import { Modal, ConfirmDialog } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { formatCurrency, formatNumber, formatShortDate, getMovementTypeLabel, getMovementTypeColor, MOVEMENT_TYPES, UNITS } from '@/lib/utils'
 import { Textarea } from '@/components/ui/Textarea'
-
-interface Product {
-  id: string
-  code: string
-  name: string
-  unit: string
-  currentStock: number
-  costPrice: number
-  salePrice: number
-}
-
-interface Movement {
-  id: string
-  productId: string
-  type: string
-  quantity: number
-  unitCost: number
-  totalCost: number
-  reference: string | null
-  notes: string | null
-  userId: string | null
-  createdAt: string
-  product: Product
-}
+import { Product, StockMovement, getProducts, getMovements, createMovement, initializeStore } from '@/lib/store'
 
 interface Pagination {
   page: number
@@ -49,7 +24,7 @@ interface Pagination {
 
 export default function MovimentacoesPage() {
   const { success, error: toastError } = useToast()
-  const [movements, setMovements] = useState<Movement[]>([])
+  const [movements, setMovements] = useState<StockMovement[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
@@ -63,7 +38,7 @@ export default function MovimentacoesPage() {
 
   // Modal states
   const [showModal, setShowModal] = useState(false)
-  const [editingMovement, setEditingMovement] = useState<Movement | null>(null)
+  const [editingMovement, setEditingMovement] = useState<StockMovement | null>(null)
   const [defaultType, setDefaultType] = useState<'ENTRADA' | 'SAIDA' | 'AJUSTE'>('ENTRADA')
 
   // Form state
@@ -78,48 +53,56 @@ export default function MovimentacoesPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
 
-  const fetchMovements = useCallback(async () => {
+  const fetchData = useCallback(() => {
     setLoading(true)
+    setProductsLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        limit: pagination.limit.toString(),
-      })
-      if (productFilter) params.set('productId', productFilter)
-      if (typeFilter) params.set('type', typeFilter)
-      if (startDate) params.set('startDate', startDate)
-      if (endDate) params.set('endDate', endDate)
+      initializeStore()
+      const allProducts = getProducts()
+      setProducts(allProducts)
 
-      const res = await fetch(`/api/movements?${params}`)
-      if (!res.ok) throw new Error('Erro ao buscar movimentações')
-      const data = await res.json()
-      setMovements(data.data)
-      setPagination(data.pagination)
+      let allMovements = getMovements()
+
+      // Filtros
+      if (productFilter) {
+        allMovements = allMovements.filter((m) => m.productId === productFilter)
+      }
+      if (typeFilter) {
+        allMovements = allMovements.filter((m) => m.type === typeFilter)
+      }
+      if (startDate) {
+        allMovements = allMovements.filter((m) => new Date(m.createdAt) >= new Date(startDate))
+      }
+      if (endDate) {
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        allMovements = allMovements.filter((m) => new Date(m.createdAt) <= end)
+      }
+
+      const total = allMovements.length
+      const totalPages = Math.ceil(total / pagination.limit)
+      const start = (pagination.page - 1) * pagination.limit
+      const paginatedMovements = allMovements.slice(start, start + pagination.limit)
+
+      // Enriquecer com dados do produto
+      const enrichedMovements = paginatedMovements.map((m) => {
+        const product = allProducts.find((p) => p.id === m.productId)
+        return { ...m, product }
+      })
+
+      setMovements(enrichedMovements)
+      setPagination((prev) => ({ ...prev, total, totalPages }))
     } catch (err) {
-      toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar movimentações')
+      toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar dados')
     } finally {
       setLoading(false)
+      setProductsLoading(false)
     }
   }, [pagination.page, pagination.limit, productFilter, typeFilter, startDate, endDate, toastError])
 
-  const fetchProducts = useCallback(async () => {
-    setProductsLoading(true)
-    try {
-      const res = await fetch('/api/products?limit=1000&isActive=true')
-      if (!res.ok) throw new Error('Erro ao buscar produtos')
-      const data = await res.json()
-      setProducts(data.data)
-    } catch (err) {
-      toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar produtos')
-    } finally {
-      setProductsLoading(false)
-    }
-  }, [toastError])
-
   useEffect(() => {
-    fetchMovements()
-    fetchProducts()
-  }, [fetchMovements, fetchProducts])
+    fetchData()
+  }, [fetchData])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -176,30 +159,20 @@ export default function MovimentacoesPage() {
 
     setSubmitting(true)
     try {
-      const payload = {
+      createMovement({
         productId: formData.productId,
         type: formData.type,
         quantity: parseInt(formData.quantity),
         unitCost: parseFloat(formData.unitCost),
-        reference: formData.reference || undefined,
-        notes: formData.notes || undefined,
-      }
-
-      const res = await fetch('/api/movements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        totalCost: 0, // calculado internamente
+        reference: formData.reference || null,
+        notes: formData.notes || null,
+        userId: null,
       })
-
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.error || 'Erro ao registrar movimentação')
-      }
 
       success('Movimentação registrada!')
       setShowModal(false)
-      fetchMovements()
-      fetchProducts()
+      fetchData()
     } catch (err) {
       toastError('Erro', err instanceof Error ? err.message : 'Erro ao registrar movimentação')
     } finally {
@@ -211,54 +184,54 @@ export default function MovimentacoesPage() {
     {
       key: 'date',
       header: 'Data',
-      render: (row: Movement) => formatShortDate(row.createdAt),
+      render: (row: StockMovement & { product?: Product }) => formatShortDate(row.createdAt),
     },
     {
       key: 'product',
       header: 'Produto',
-      render: (row: Movement) => (
+      render: (row: StockMovement & { product?: Product }) => (
         <div>
-          <p className="font-medium text-gray-900">{row.product.name}</p>
-          <p className="text-xs text-gray-500">{row.product.code}</p>
+          <p className="font-medium text-gray-900">{row.product?.name || 'Produto removido'}</p>
+          <p className="text-xs text-gray-500">{row.product?.code || ''}</p>
         </div>
       ),
     },
     {
       key: 'type',
       header: 'Tipo',
-      render: (row: Movement) => (
+      render: (row: StockMovement & { product?: Product }) => (
         <Badge className={getMovementTypeColor(row.type)}>{getMovementTypeLabel(row.type)}</Badge>
       ),
     },
     {
       key: 'quantity',
       header: 'Quantidade',
-      render: (row: Movement) => (
+      render: (row: StockMovement & { product?: Product }) => (
         <span className={`font-medium ${row.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {row.quantity > 0 ? '+' : ''}{formatNumber(row.quantity)} {row.product.unit}
+          {row.quantity > 0 ? '+' : ''}{formatNumber(row.quantity)} {row.product?.unit || ''}
         </span>
       ),
     },
     {
       key: 'unitCost',
       header: 'Custo Unit.',
-      render: (row: Movement) => formatCurrency(row.unitCost),
+      render: (row: StockMovement & { product?: Product }) => formatCurrency(row.unitCost),
     },
     {
       key: 'totalCost',
       header: 'Custo Total',
-      render: (row: Movement) => <span className="font-medium">{formatCurrency(row.totalCost)}</span>,
+      render: (row: StockMovement & { product?: Product }) => <span className="font-medium">{formatCurrency(row.totalCost)}</span>,
     },
     {
       key: 'reference',
       header: 'Referência',
-      render: (row: Movement) => row.reference || <span className="text-gray-400">—</span>,
+      render: (row: StockMovement & { product?: Product }) => row.reference || <span className="text-gray-400">—</span>,
     },
     {
       key: 'stockAfter',
       header: 'Estoque Atual',
-      render: (row: Movement) => (
-        <Badge variant="outline">{formatNumber(row.product.currentStock)} {row.product.unit}</Badge>
+      render: (row: StockMovement & { product?: Product }) => (
+        <Badge variant="outline">{formatNumber(row.product?.currentStock || 0)} {row.product?.unit || ''}</Badge>
       ),
     },
   ]

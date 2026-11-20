@@ -1,7 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useState, useEffect, useCallback } from 'react'
 import { AlertTriangle, Bell, Check, CheckCheck, Filter, ChevronLeft, ChevronRight, Eye, RefreshCw } from 'lucide-react'
 import { Layout } from '@/components/layout'
@@ -12,26 +10,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Table, TablePagination } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/Toast'
 import { formatNumber, formatShortDate, getAlertTypeColor } from '@/lib/utils'
-
-interface Product {
-  id: string
-  code: string
-  name: string
-  unit: string
-  currentStock: number
-  minStock: number
-}
-
-interface Alert {
-  id: string
-  productId: string
-  type: string
-  message: string
-  isRead: boolean
-  createdAt: string
-  readAt: string | null
-  product: Product
-}
+import { StockAlert, Product, getAlerts, markAlertsAsRead, markAllAlertsAsRead, getProducts, initializeStore } from '@/lib/store'
 
 interface Pagination {
   page: number
@@ -42,29 +21,46 @@ interface Pagination {
 
 export default function AlertasPage() {
   const { success, error: toastError } = useToast()
-  const [alerts, setAlerts] = useState<Alert[]>([])
+  const [alerts, setAlerts] = useState<StockAlert[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
   const [readFilter, setReadFilter] = useState<'all' | 'read' | 'unread'>('unread')
   const [typeFilter, setTypeFilter] = useState('')
 
-  const fetchAlerts = useCallback(async () => {
+  const fetchData = useCallback(() => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        limit: pagination.limit.toString(),
-      })
-      if (readFilter !== 'all') params.set('isRead', readFilter === 'unread' ? 'false' : 'true')
-      if (typeFilter) params.set('type', typeFilter)
+      initializeStore()
+      const allProducts = getProducts()
+      setProducts(allProducts)
 
-      const res = await fetch(`/api/alerts?${params}`)
-      if (!res.ok) throw new Error('Erro ao buscar alertas')
-      const data = await res.json()
-      setAlerts(data.data)
-      setPagination(data.pagination)
-      setUnreadCount(data.unreadCount || 0)
+      let allAlerts = getAlerts()
+
+      // Filtros
+      if (readFilter !== 'all') {
+        allAlerts = allAlerts.filter((a) => (readFilter === 'unread') === !a.isRead)
+      }
+      if (typeFilter) {
+        allAlerts = allAlerts.filter((a) => a.type === typeFilter)
+      }
+
+      const unread = allAlerts.filter((a) => !a.isRead).length
+      const total = allAlerts.length
+      const totalPages = Math.ceil(total / pagination.limit)
+      const start = (pagination.page - 1) * pagination.limit
+      const paginatedAlerts = allAlerts.slice(start, start + pagination.limit)
+
+      // Enriquecer com dados do produto
+      const enrichedAlerts = paginatedAlerts.map((a) => {
+        const product = allProducts.find((p) => p.id === a.productId)
+        return { ...a, product }
+      })
+
+      setAlerts(enrichedAlerts)
+      setPagination((prev) => ({ ...prev, total, totalPages }))
+      setUnreadCount(unread)
     } catch (err) {
       toastError('Erro', err instanceof Error ? err.message : 'Erro ao carregar alertas')
     } finally {
@@ -73,19 +69,14 @@ export default function AlertasPage() {
   }, [pagination.page, pagination.limit, readFilter, typeFilter, toastError])
 
   useEffect(() => {
-    fetchAlerts()
-  }, [fetchAlerts])
+    fetchData()
+  }, [fetchData])
 
   const markAsRead = async (alertIds: string[]) => {
     try {
-      const res = await fetch('/api/alerts', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alertIds }),
-      })
-      if (!res.ok) throw new Error('Erro ao marcar como lido')
+      markAlertsAsRead(alertIds)
       success('Alertas marcados como lidos')
-      fetchAlerts()
+      fetchData()
     } catch (err) {
       toastError('Erro', err instanceof Error ? err.message : 'Erro ao atualizar alertas')
     }
@@ -93,14 +84,9 @@ export default function AlertasPage() {
 
   const markAllAsRead = async () => {
     try {
-      const res = await fetch('/api/alerts', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markAllAsRead: true }),
-      })
-      if (!res.ok) throw new Error('Erro ao marcar todos como lidos')
+      markAllAlertsAsRead()
       success('Todos os alertas marcados como lidos')
-      fetchAlerts()
+      fetchData()
     } catch (err) {
       toastError('Erro', err instanceof Error ? err.message : 'Erro ao atualizar alertas')
     }
@@ -119,7 +105,7 @@ export default function AlertasPage() {
     {
       key: 'type',
       header: 'Tipo',
-      render: (row: Alert) => (
+      render: (row: StockAlert & { product?: Product }) => (
         <Badge className={getAlertTypeColor(row.type)}>
           {getAlertTypeLabel(row.type)}
         </Badge>
@@ -128,19 +114,19 @@ export default function AlertasPage() {
     {
       key: 'product',
       header: 'Produto',
-      render: (row: Alert) => (
+      render: (row: StockAlert & { product?: Product }) => (
         <div>
           <p className={`font-medium ${!row.isRead ? 'text-gray-900' : 'text-gray-600'}`}>
-            {row.product.name}
+            {row.product?.name || 'Produto removido'}
           </p>
-          <p className="text-xs text-gray-500">{row.product.code}</p>
+          <p className="text-xs text-gray-500">{row.product?.code || ''}</p>
         </div>
       ),
     },
     {
       key: 'message',
       header: 'Mensagem',
-      render: (row: Alert) => (
+      render: (row: StockAlert & { product?: Product }) => (
         <p className={!row.isRead ? 'font-medium text-gray-900' : 'text-gray-600'}>
           {row.message}
         </p>
@@ -149,12 +135,12 @@ export default function AlertasPage() {
     {
       key: 'stock',
       header: 'Estoque Atual',
-      render: (row: Alert) => (
+      render: (row: StockAlert & { product?: Product }) => (
         <div className="flex items-center gap-2">
           <Badge variant="outline">
-            {formatNumber(row.product.currentStock)} {row.product.unit}
+            {formatNumber(row.product?.currentStock || 0)} {row.product?.unit || ''}
           </Badge>
-          {row.product.minStock > 0 && (
+          {row.product && row.product.minStock > 0 && (
             <Badge variant="outline" className="text-xs text-amber-700 bg-amber-50 border-amber-200">
               Mín: {formatNumber(row.product.minStock)}
             </Badge>
@@ -165,12 +151,12 @@ export default function AlertasPage() {
     {
       key: 'date',
       header: 'Data',
-      render: (row: Alert) => formatShortDate(row.createdAt),
+      render: (row: StockAlert & { product?: Product }) => formatShortDate(row.createdAt),
     },
     {
       key: 'status',
       header: 'Status',
-      render: (row: Alert) => (
+      render: (row: StockAlert & { product?: Product }) => (
         <Badge variant={row.isRead ? 'success' : 'warning'}>
           {row.isRead ? 'Lido' : 'Não lido'}
         </Badge>
@@ -179,7 +165,7 @@ export default function AlertasPage() {
     {
       key: 'actions',
       header: 'Ações',
-      render: (row: Alert) => (
+      render: (row: StockAlert & { product?: Product }) => (
         <div className="flex items-center gap-1">
           {!row.isRead && (
             <Button
@@ -199,8 +185,8 @@ export default function AlertasPage() {
     },
   ]
 
-  const unreadAlerts = alerts.filter(a => !a.isRead)
-  const selectedUnreadIds = unreadAlerts.map(a => a.id)
+  const unreadAlerts = alerts.filter((a) => !a.isRead)
+  const selectedUnreadIds = unreadAlerts.map((a) => a.id)
 
   return (
     <Layout>
@@ -219,7 +205,7 @@ export default function AlertasPage() {
             <p className="text-gray-500 mt-1">Monitore produtos com estoque baixo ou zerado</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={fetchAlerts}>
+            <Button variant="outline" onClick={fetchData}>
               <RefreshCw className="w-4 h-4" />
               Atualizar
             </Button>

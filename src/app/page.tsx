@@ -1,14 +1,13 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useEffect, useState } from 'react'
-import { Package, AlertTriangle, TrendingUp, DollarSign, Box, ArrowUpRight, ArrowDownRight, Minus, Plus, Clock } from 'lucide-react'
+import { Package, AlertTriangle, TrendingUp, DollarSign, Box, ArrowUpRight, ArrowDownRight, Minus, Plus } from 'lucide-react'
 import { Layout } from '@/components/layout'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { formatCurrency, formatNumber, formatShortDate, getMovementTypeLabel, getMovementTypeColor, getStockStatus } from '@/lib/utils'
+import { formatCurrency, formatNumber, formatShortDate, getMovementTypeLabel, getMovementTypeColor } from '@/lib/utils'
+import { getDashboardStats, initializeStore } from '@/lib/store'
 
 interface DashboardStats {
   totalProducts: number
@@ -28,7 +27,7 @@ interface Movement {
   reference: string | null
   notes: string | null
   createdAt: string
-  product: {
+  product?: {
     id: string
     code: string
     name: string
@@ -41,7 +40,7 @@ interface Alert {
   type: string
   message: string
   createdAt: string
-  product: {
+  product?: {
     id: string
     code: string
     name: string
@@ -63,19 +62,15 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    async function fetchDashboard() {
-      try {
-        const res = await fetch('/api/dashboard')
-        if (!res.ok) throw new Error('Erro ao carregar dashboard')
-        const json = await res.json()
-        setData(json)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro desconhecido')
-      } finally {
-        setLoading(false)
-      }
+    initializeStore()
+    try {
+      const stats = getDashboardStats()
+      setData(stats)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro desconhecido')
+    } finally {
+      setLoading(false)
     }
-    fetchDashboard()
   }, [])
 
   if (loading) {
@@ -215,10 +210,10 @@ export default function DashboardPage() {
                           {movement.type === 'DEVOLUCAO' && <Plus className="w-5 h-5" />}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{movement.product.name}</p>
+                          <p className="font-medium text-gray-900 truncate">{movement.product?.name || 'Produto removido'}</p>
                           <p className="text-sm text-gray-500">
                             {getMovementTypeLabel(movement.type)} •{' '}
-                            {movement.quantity > 0 ? '+' : ''}{formatNumber(movement.quantity)} {movement.product.unit}
+                            {movement.quantity > 0 ? '+' : ''}{formatNumber(movement.quantity)} {movement.product?.unit || ''}
                           </p>
                         </div>
                       </div>
@@ -261,10 +256,10 @@ export default function DashboardPage() {
                           {alert.type === 'OUT_OF_STOCK' ? 'Sem Estoque' : alert.type === 'LOW_STOCK' ? 'Estoque Baixo' : 'Estoque Alto'}
                         </Badge>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900">{alert.product.name}</p>
+                          <p className="font-medium text-gray-900">{alert.product?.name || 'Produto removido'}</p>
                           <p className="text-sm text-gray-500">{alert.message}</p>
                           <p className="text-xs text-gray-400 mt-1">
-                            Atual: {formatNumber(alert.product.currentStock)} {alert.product.unit} • Mín: {formatNumber(alert.product.minStock)}
+                            Atual: {formatNumber(alert.product?.currentStock || 0)} {alert.product?.unit || ''} • Mín: {formatNumber(alert.product?.minStock || 0)}
                           </p>
                         </div>
                         <span className="text-xs text-gray-400 whitespace-nowrap">
